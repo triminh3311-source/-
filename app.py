@@ -4,151 +4,159 @@ import pandas as pd
 import pandas_ta as ta
 import time
 
-# --- 页面配置 ---
-st.set_page_config(page_title="威科夫空头猎手 V6", layout="wide", page_icon="🩸")
-st.title("🩸 威科夫空头猎手 V6 (抓捕派发/UT)")
+# --- 页面设置 ---
+st.set_page_config(page_title="全景威科夫仪表盘 V7", layout="wide", page_icon="💀")
+st.title("💀 威科夫全景仪表盘 V7 (做空专用)")
 st.markdown("""
-**核心策略：** 寻找 **Distribution (派发)** 结构。
-**主要信号：** 1. **UT (Upthrust):** 假突破前高，收盘跌回。
-2. **SOW (Sign of Weakness):** 涨不动了，高位出现长上影线。
-3. **RSI 背离:** 价格新高，RSI 没新高 (主力在悄悄出货)。
+**逻辑大改：** 不再隐藏数据。这里列出**全市场成交量前 50** 的币种。
+**评分系统：** 只要上涨乏力、RSI超买、出现长上影线，**熊市分数 (Bear Score)** 就会越高。
+*分数越高，派发（做顶）嫌疑越大。*
 """)
 st.divider()
 
 # --- 侧边栏 ---
 with st.sidebar:
-    st.header("⚙️ 空头参数")
-    # 找顶部通常用 4h 或 1d 比较稳，但 15m/1h 适合抓日内高点
-    timeframe = st.selectbox("时间周期", ['15m', '1h', '4h', '1d'], index=1)
-    
-    # 回看周期：判断是否在高位的参照物
-    lookback = st.slider("结构回看 K 线数", 20, 100, 50)
-    
-    st.warning("⚠️ 熊市不言底，牛市不言顶。请配合成交量确认。")
-    scan_btn = st.button("💀 启动空头扫描", type="primary")
+    st.header("⚙️ 扫描参数")
+    timeframe = st.selectbox("分析周期 (推荐 4h 看趋势)", ['15m', '1h', '4h', '1d'], index=2)
+    st.info("系统将获取币安合约成交量 Top 50 的实时数据。")
+    scan_btn = st.button("🔄 刷新全市场数据", type="primary")
 
-# --- 硬核名单：全市场波动最大的 100+ 个币 ---
-TOP_COINS = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'ORDI/USDT', 'SATS/USDT', 'RATS/USDT', 
-    'TIA/USDT', 'SEI/USDT', 'WLD/USDT', 'FIL/USDT', 'LINK/USDT', 'AVAX/USDT', 'DOGE/USDT',
-    'PEPE/USDT', 'WIF/USDT', 'BONK/USDT', 'FLOKI/USDT', 'MEME/USDT', 'BOME/USDT', 'JUP/USDT',
-    'PYTH/USDT', 'JTO/USDT', 'RAY/USDT', 'NEAR/USDT', 'RNDR/USDT', 'FET/USDT', 'AGIX/USDT',
-    'OCEAN/USDT', 'W/USDT', 'ENA/USDT', 'ETHFI/USDT', 'PENDLE/USDT', 'SSV/USDT', 'LDO/USDT',
-    'OP/USDT', 'ARB/USDT', 'STRK/USDT', 'MATIC/USDT', 'DYDX/USDT', 'GALA/USDT', 'SAND/USDT',
-    'MANA/USDT', 'APE/USDT', 'BLUR/USDT', 'GMT/USDT', 'AXS/USDT', 'CHZ/USDT', 'TRX/USDT',
-    'LTC/USDT', 'BCH/USDT', 'ETC/USDT', 'EOS/USDT', 'XRP/USDT', 'ADA/USDT', 'DOT/USDT',
-    'ATOM/USDT', 'SUI/USDT', 'APT/USDT', 'INJ/USDT', 'KAS/USDT', 'STX/USDT', 'FTM/USDT',
-    'IMX/USDT', 'RUNE/USDT', 'SNX/USDT', 'CRV/USDT', 'AAVE/USDT', 'COMP/USDT', 'MKR/USDT',
-    '1000SATS/USDT', 'ALT/USDT', 'PIXEL/USDT', 'AI/USDT', 'XAI/USDT', 'ACE/USDT', 'NFP/USDT',
-    'PORTAL/USDT', 'AEVO/USDT', 'TNSR/USDT', 'SAGA/USDT', 'TAO/USDT', 'ZK/USDT', 'NOT/USDT',
-    'IO/USDT', 'ZRO/USDT', 'LISTA/USDT', 'BLAST/USDT', 'DOGS/USDT', 'CATI/USDT', 'HMSTR/USDT',
-    'NEIRO/USDT', 'TURBO/USDT', '1MBABYDOGE/USDT', 'ACT/USDT', 'PNUT/USDT', 'MOODENG/USDT',
-    'GOAT/USDT', 'HIPPO/USDT', 'THE/USDT', 'LUCE/USDT', 'CETUS/USDT', 'COW/USDT', 'KAIA/USDT'
-]
-
-def check_distribution(exchange, symbol, timeframe, lookback):
+# --- 核心数据获取 ---
+@st.cache_data(ttl=60)
+def get_top_coins():
+    exchange = ccxt.binance({'options': {'defaultType': 'future'}})
     try:
-        # 获取足够多的 K 线以计算 RSI
-        bars = exchange.fetch_ohlcv(symbol, timeframe, limit=lookback + 20)
+        # 获取所有行情
+        tickers = exchange.fetch_tickers()
+        # 筛选 USDT 合约
+        valid = [t for s, t in tickers.items() if '/USDT' in s]
+        # 按成交额排序，取前 50
+        sorted_tickers = sorted(valid, key=lambda x: x['quoteVolume'], reverse=True)[:50]
+        return exchange, [t['symbol'] for t in sorted_tickers]
+    except Exception as e:
+        st.error(f"连接交易所失败: {e}")
+        return exchange, []
+
+def analyze_coin(exchange, symbol, timeframe):
+    try:
+        bars = exchange.fetch_ohlcv(symbol, timeframe, limit=50)
         if not bars: return None
         df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 计算 RSI
+        # 计算指标
+        # 1. RSI
         df['rsi'] = ta.rsi(df['close'], length=14)
+        current_rsi = df['rsi'].iloc[-1]
         
-        # 获取当前K线 和 之前的参照系
+        # 2. 上影线比例 (Upper Wick)
         curr = df.iloc[-1]
-        prev = df.iloc[-2]
-        
-        # 定义过去的“高点区域” (Resistance)
-        # 取过去 N 根K线的最高价（不包含当前这根）
-        past_high = df['high'].iloc[-lookback:-1].max()
-        
-        # --- 信号逻辑 1: UT (上冲回落 / 假突破) ---
-        # 今天的最高价冲破了过去的高点，但收盘价没站稳，收了回来
-        is_ut = False
-        if curr['high'] > past_high and curr['close'] < past_high:
-            is_ut = True
-            
-        # --- 信号逻辑 2: 射击之星 (Shooting Star) ---
-        # 上影线很长，实体很小，且位于相对高位
         body = abs(curr['close'] - curr['open'])
         upper_wick = curr['high'] - max(curr['close'], curr['open'])
-        is_shooting_star = False
-        # 上影线是实体的 2 倍以上
-        if upper_wick > body * 2:
-            is_shooting_star = True
-            
-        # --- 信号逻辑 3: RSI 严重超买 ---
-        is_overbought = curr['rsi'] > 70
+        # 避免除以0
+        wick_ratio = upper_wick / (body + 0.00001) 
         
-        # --- 组合判断 (只要满足其一即可入选) ---
+        # 3. 价格位置 (Price Location)
+        # 当前价格处于过去 50 根K线的什么位置 (0=最低, 1=最高)
+        period_high = df['high'].max()
+        period_low = df['low'].min()
+        location = (curr['close'] - period_low) / (period_high - period_low)
         
-        # 场景 A: 经典 UT (突破失败 + 收跌)
-        if is_ut and curr['close'] < curr['open']:
-            return {
-                "Symbol": symbol,
-                "Price": curr['close'],
-                "RSI": round(curr['rsi'], 2),
-                "Signal": "🔴 UT (假突破)",
-                "Desc": f"突破前高 {past_high} 失败，主力诱多"
-            }
+        # --- 🐻 熊市分数计算 (Bear Score) ---
+        score = 0
+        reasons = []
+        
+        # A. RSI 评分
+        if current_rsi > 70: 
+            score += 30
+            reasons.append("RSI超买")
+        elif current_rsi > 60:
+            score += 10
             
-        # 场景 B: 高位长上影线 (SOW) + 相对高位
-        # 只有当价格接近过去高点时（95%水位），出射击之星才有效
-        if is_shooting_star and curr['high'] >= past_high * 0.95:
-             return {
-                "Symbol": symbol,
-                "Price": curr['close'],
-                "RSI": round(curr['rsi'], 2),
-                "Signal": "⚠️ 射击之星 (抛压)",
-                "Desc": "高位出现长上影线，空头抵抗强烈"
-            }
+        # B. 上影线评分 (UT 嫌疑)
+        if wick_ratio > 1.5: # 影线比实体长1.5倍
+            score += 40
+            reasons.append("长上影线(UT)")
+        elif wick_ratio > 0.8:
+            score += 20
             
-        # 场景 C: 极度超买 (RSI > 75)
-        if curr['rsi'] > 75:
-             return {
-                "Symbol": symbol,
-                "Price": curr['close'],
-                "RSI": round(curr['rsi'], 2),
-                "Signal": "🔥 极度超买",
-                "Desc": f"RSI 高达 {curr['rsi']:.1f}，随时可能回调"
-            }
+        # C. 高位评分
+        if location > 0.85: # 处于近期高位
+            score += 20
+            reasons.append("处于高位")
+            
+        # D. 假突破判定 (刚才突破前高现在跌回)
+        prev_high = df['high'].iloc[:-1].max() # 不含当前的过去高点
+        if curr['high'] > prev_high and curr['close'] < prev_high:
+            score += 50 # 这是一个极强的做空信号
+            reasons.append("🔴假突破(UTAD)")
 
-    except Exception as e:
+        return {
+            "币种": symbol,
+            "现价": curr['close'],
+            "RSI": round(current_rsi, 1),
+            "位置": f"{location*100:.0f}%",
+            "上影线": f"{wick_ratio:.1f}倍",
+            "熊市分数": score,
+            "特征": ", ".join(reasons) if reasons else "无明显异常"
+        }
+        
+    except:
         return None
-    return None
 
-# --- 执行扫描 ---
+# --- 执行逻辑 ---
 if scan_btn:
-    st.write(f"🦅 正在高空巡航，扫描 **{len(TOP_COINS)}** 个目标的顶部结构...")
+    st.write("📡 正在连接币安接口，拉取 Top 50 数据...")
     progress = st.progress(0)
     
-    exchange = ccxt.binance({'options': {'defaultType': 'future'}})
-    found = []
-    
-    result_col = st.container()
-    
-    for i, sym in enumerate(TOP_COINS):
-        res = check_distribution(exchange, sym, timeframe, lookback)
-        
-        if res:
-            found.append(res)
-            with result_col:
-                c1, c2, c3, c4 = st.columns(4)
-                c1.markdown(f"### {res['Symbol']}")
-                c2.metric("现价", res['Price'])
-                c3.metric("RSI", res['RSI'])
-                c4.error(f"**{res['Signal']}**")
-                st.caption(res['Desc'])
-                st.divider()
-                
-        progress.progress((i + 1) / len(TOP_COINS))
-        time.sleep(0.05)
-        
-    progress.empty()
-    
-    if len(found) == 0:
-        st.info("当前市场没有发现明显的顶部派发结构。可能是因为大盘正在单边下跌（Markdown阶段），没有反弹给你空。")
+    exchange, symbols = get_top_coins()
+    if not symbols:
+        st.error("无法获取币种列表，请稍后再试。")
     else:
-        st.success(f"扫描结束！发现 {len(found)} 个潜在做空目标。")
+        results = []
+        for i, sym in enumerate(symbols):
+            data = analyze_coin(exchange, sym, timeframe)
+            if data:
+                results.append(data)
+            progress.progress((i + 1) / len(symbols))
+        
+        progress.empty()
+        
+        # 将结果转换为 DataFrame
+        df_res = pd.DataFrame(results)
+        
+        # 按“熊市分数”从高到低排序
+        df_res = df_res.sort_values(by="熊市分数", ascending=False)
+        
+        # --- 展示区域 1: 极品做空机会 (分数 > 60) ---
+        top_picks = df_res[df_res['熊市分数'] >= 50]
+        
+        st.subheader("🚨 高危预警 (极高派发嫌疑)")
+        if not top_picks.empty:
+            for index, row in top_picks.iterrows():
+                with st.container():
+                    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 3])
+                    c1.markdown(f"### {row['币种']}")
+                    c2.metric("熊市分数", row['熊市分数'])
+                    c3.metric("RSI", row['RSI'])
+                    c4.metric("位置", row['位置'])
+                    c5.error(f"**{row['特征']}**")
+                    st.divider()
+        else:
+            st.info("当前没有 >50 分的完美做空形态，请看下方的全市场排行。")
+
+        # --- 展示区域 2: 全市场大表 (你一定能看到数据) ---
+        st.subheader("📋 全市场监控列表 (按熊市分数排序)")
+        st.dataframe(
+            df_res,
+            column_config={
+                "熊市分数": st.column_config.ProgressColumn(
+                    "做空潜力",
+                    help="分数越高，顶部特征越明显",
+                    format="%d",
+                    min_value=0,
+                    max_value=120,
+                ),
+            },
+            hide_index=True,
+            use_container_width=True
+        )
