@@ -126,5 +126,3 @@ if scan_btn:
 
 else:
     st.info("👈 点击左侧按钮，开始全市场地毯式搜索。")
-        st.warning(f"扫描了 {len(symbols)} 个币种，当前 15分钟 级别暂无符合【TNSR式暴力洗盘】的形态。主力可能在休息。")
-        st.caption("建议：过 15 分钟再点一次，或者去 1h 级别看看。")
