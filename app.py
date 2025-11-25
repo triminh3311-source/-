@@ -4,126 +4,127 @@ import pandas as pd
 import time
 
 # --- 页面配置 ---
-st.set_page_config(page_title="山寨币暴利猎手 V3", layout="wide", page_icon="🚀")
-st.title("🚀 山寨币暴利猎手 V3 (寻找 TNSR 式震仓)")
+st.set_page_config(page_title="山寨币暴利猎手 V4 (全火力版)", layout="wide", page_icon="🔥")
+st.title("🔥 山寨币暴利猎手 V4 (强制扫描前120名)")
 st.markdown("""
-**核心策略：** 寻找 **Deep Shakeout + V-Shape Reversal** (深跌后暴力V反)。
-扫描全网成交量前 100 的热门山寨币，专抓主力骗线。
+**策略：** 强制覆盖币安活跃度最高的 120+ 个山寨币，寻找 **暴力洗盘 (Deep Shakeout) + V反**。
+*不再依赖API排名，确保每次都扫满全场。*
 """)
 st.divider()
 
 # --- 侧边栏 ---
 with st.sidebar:
     st.header("⚙️ 猎杀参数")
-    timeframe = st.selectbox("时间周期 (建议15m/1h)", ['15m', '1h', '4h'], index=0)
-    vol_limit = st.slider("扫描币种数量 (按成交量排名)", 50, 200, 100)
-    drop_threshold = st.slider("震仓深度要求 (%)", 1.0, 10.0, 2.0, help="最低点比开盘价跌了多少百分比才算暴跌")
-    st.warning("注意：全市场扫描速度较慢，请耐心等待 1-2 分钟。")
-    scan_btn = st.button("🔥 启动全网扫描", type="primary")
+    # 默认 15m，这是抓日内 V 反的黄金周期
+    timeframe = st.selectbox("时间周期", ['15m', '1h', '4h'], index=0)
+    
+    # 震仓深度：建议 2% - 3%，太小是噪音，太深可能是真崩盘
+    drop_threshold = st.slider("最低跌幅要求 (%)", 1.0, 8.0, 2.0)
+    
+    st.info("点击按钮后，请耐心等待 2-3 分钟，因为要逐个分析 120 个币的 K 线结构。")
+    scan_btn = st.button("🚀 启动地毯式轰炸", type="primary")
 
-# --- 核心功能 ---
-@st.cache_data(ttl=300) # 缓存5分钟
-def get_top_volume_coins(limit=100):
-    exchange = ccxt.binance({'options': {'defaultType': 'future'}})
-    try:
-        tickers = exchange.fetch_tickers()
-        # 筛选 USDT 合约
-        valid_tickers = [
-            t for s, t in tickers.items() 
-            if '/USDT:USDT' in s or ('/USDT' in s and 'future' in t.get('info', {}).get('status', '').lower())
-        ]
-        # 按成交量排序 (quoteVolume)
-        sorted_tickers = sorted(valid_tickers, key=lambda x: x['quoteVolume'], reverse=True)
-        # 提取 Symbol
-        top_symbols = [t['symbol'] for t in sorted_tickers[:limit]]
-        return exchange, top_symbols
-    except:
-        # 如果获取失败，返回一个保底列表
-        return exchange, ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'TNSR/USDT', 'PEPE/USDT', 'WIF/USDT']
+# --- 硬核名单：币安合约成交量/热度 Top 120 (手动维护，确保覆盖) ---
+# 包含：公链、Meme、AI、RWA、Depin、老主流等板块龙头
+TOP_COINS = [
+    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'DOGE/USDT', 'XRP/USDT', 'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'SHIB/USDT',
+    'DOT/USDT', 'LTC/USDT', 'BCH/USDT', 'UNI/USDT', 'ATOM/USDT', 'ETC/USDT', 'FIL/USDT', 'NEAR/USDT', 'APT/USDT', 'ARB/USDT',
+    'OP/USDT', 'SUI/USDT', 'INJ/USDT', 'RNDR/USDT', 'MATIC/USDT', 'TRX/USDT', 'XLM/USDT', 'VET/USDT', 'ALGO/USDT', 'FTM/USDT',
+    'SAND/USDT', 'MANA/USDT', 'AXS/USDT', 'THETA/USDT', 'AAVE/USDT', 'SNX/USDT', 'CRV/USDT', 'GRT/USDT', 'DYDX/USDT', 'LDO/USDT',
+    'IMX/USDT', 'STX/USDT', 'RUNE/USDT', 'EGLD/USDT', 'QNT/USDT', 'MINA/USDT', 'EOS/USDT', 'XTZ/USDT', 'NEO/USDT', 'IOTA/USDT',
+    'GALA/USDT', 'CHZ/USDT', 'KAVA/USDT', 'FLOW/USDT', 'ZEC/USDT', 'DASH/USDT', 'MKR/USDT', 'COMP/USDT', 'ENJ/USDT', 'BAT/USDT',
+    'PEPE/USDT', 'WLD/USDT', 'ORDI/USDT', 'TIA/USDT', 'SEI/USDT', 'BLUR/USDT', 'GMT/USDT', 'APE/USDT', 'JUP/USDT', 'PYTH/USDT',
+    'BONK/USDT', 'WIF/USDT', 'FLOKI/USDT', 'MEME/USDT', '1000SATS/USDT', 'RATS/USDT', 'JTO/USDT', 'ACE/USDT', 'NFP/USDT', 'AI/USDT',
+    'XAI/USDT', 'MANTA/USDT', 'ALT/USDT', 'PIXEL/USDT', 'STRK/USDT', 'PORTAL/USDT', 'AEVO/USDT', 'ETHFI/USDT', 'ENA/USDT', 'W/USDT',
+    'TNSR/USDT', 'SAGA/USDT', 'TAO/USDT', 'OMNI/USDT', 'REZ/USDT', 'BB/USDT', 'NOT/USDT', 'IO/USDT', 'ZK/USDT', 'ZRO/USDT',
+    'BLAST/USDT', 'RENDER/USDT', 'BANANA/USDT', 'DOGS/USDT', 'TON/USDT', 'TURBO/USDT', 'NEIRO/USDT', '1MBABYDOGE/USDT', 'CATI/USDT', 'HMSTR/USDT',
+    'EIGEN/USDT', 'SCR/USDT', 'GOAT/USDT', 'MOODENG/USDT', 'COW/USDT', 'CETUS/USDT', 'THE/USDT', 'PNUT/USDT', 'ACT/USDT', 'HIPPO/USDT'
+]
 
-def check_shakeout_v_shape(exchange, symbol, timeframe, drop_pct_threshold):
+# --- 核心逻辑 ---
+def check_shakeout(exchange, symbol, timeframe, drop_limit):
     try:
         # 获取最近 30 根 K 线
         bars = exchange.fetch_ohlcv(symbol, timeframe, limit=30)
         if not bars: return None
         df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 只需要看最近 3 根 K 线有没有发生 V 反
-        # 逻辑：
-        # 1. 最近 3 根中，有一根K线创了过去 20 根的新低 (Liquidity Grab)
-        # 2. 那根K线的跌幅很大 (恐慌制造)
-        # 3. 当前价格已经收复了失地 (V反确认)
+        # 截取最近 3 根用于判断 V 反
+        recent = df.iloc[-3:]
+        # 过去的数据用于判断支撑
+        past = df.iloc[:-3]
         
-        recent_bars = df.iloc[-3:] # 看最近3根
-        past_bars = df.iloc[:-3]   # 过去的
+        support_low = past['low'].min()
         
-        support_low = past_bars['low'].min()
-        
-        for index, row in recent_bars.iterrows():
-            # 条件1: 跌破了之前的震荡区间最低点
+        # 遍历最近3根，寻找那一根"插针"的K线
+        for idx, row in recent.iterrows():
+            # 1. 必须跌破之前的最低点 (猎杀流动性)
             if row['low'] < support_low:
                 
-                # 计算这根针扎得有多深 (跌幅百分比)
-                # (开盘 - 最低) / 开盘
-                drop_magnitude = (row['open'] - row['low']) / row['open'] * 100
+                # 2. 计算跌幅 (High - Low) 或者 (Open - Low)
+                # 这里用 (Open - Low) 更能体现砸盘力度
+                drop_pct = (row['open'] - row['low']) / row['open'] * 100
                 
-                # 条件2: 跌幅必须足够大 (用户设定的阈值，比如 2%)
-                if drop_magnitude >= drop_pct_threshold:
+                # 3. 跌幅必须达标 (比如瞬间跌了 2% 以上)
+                if drop_pct >= drop_limit:
                     
-                    # 条件3: 现在的价格必须已经拉回来了
-                    # 如果是当前K线，看收盘价；如果是前两根，看最新价
-                    current_price = df.iloc[-1]['close']
+                    # 4. 判断是否拉回 (V反)
+                    # 获取当前最新价格 (最后一根K线的 Close)
+                    curr_price = df.iloc[-1]['close']
                     
-                    # 价格收复了跌幅的 50% 以上，或者直接站回了支撑位
-                    if current_price > (row['low'] + (row['open'] - row['low']) * 0.6):
+                    # 拉回逻辑：当前价格 > 那根针的低点 + 跌幅的一半
+                    # 也就是说收复了至少 50% 的失地，或者直接翻红
+                    recovery_price = row['low'] + (row['open'] - row['low']) * 0.5
+                    
+                    if curr_price > recovery_price:
                         return {
                             "Symbol": symbol,
-                            "Price": current_price,
-                            "Drop": f"-{drop_magnitude:.2f}%",
-                            "Type": "🩸 暴力洗盘 V反",
-                            "Desc": f"击穿 {support_low} 后快速拉回"
+                            "Price": curr_price,
+                            "Drop": f"-{drop_pct:.2f}%",
+                            "Status": "✅ V型反转确认",
+                            "Detail": f"击穿 {support_low} 后快速拉回"
                         }
         return None
-
     except:
         return None
 
-# --- 执行扫描 ---
+# --- 执行区 ---
 if scan_btn:
-    progress_text = st.empty()
-    bar = st.progress(0)
+    st.write(f"📊 准备扫描 **{len(TOP_COINS)}** 个热门币种...")
+    progress_bar = st.progress(0)
+    result_area = st.container()
     
-    with st.spinner("正在从币安获取热门山寨币列表..."):
-        exchange, symbols = get_top_volume_coins(vol_limit)
+    exchange = ccxt.binance({'options': {'defaultType': 'future'}})
+    found_count = 0
     
-    st.info(f"已锁定成交量前 {len(symbols)} 名的币种，开始地毯式搜查...")
-    
-    found_ops = []
-    
-    # 建立一个占位符区域，扫描到一个显示一个，不用等全部扫完
-    result_container = st.container()
-    
-    for i, sym in enumerate(symbols):
-        progress_text.text(f"正在扫描 ({i+1}/{len(symbols)}): {sym}")
-        res = check_shakeout_v_shape(exchange, sym, timeframe, drop_threshold)
+    for i, symbol in enumerate(TOP_COINS):
+        # 扫描
+        res = check_shakeout(exchange, symbol, timeframe, drop_threshold)
         
         if res:
-            found_ops.append(res)
-            # 实时显示结果
-            with result_container:
-                cols = st.columns([1, 1, 1, 2])
-                cols[0].markdown(f"### {res['Symbol']}")
-                cols[1].metric("现价", res['Price'])
-                cols[2].error(res['Drop']) # 显示跌幅
-                cols[3].success(f"**{res['Type']}**\n\n{res['Desc']}")
+            found_count += 1
+            with result_area:
+                c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 3])
+                c1.markdown(f"### {res['Symbol']}")
+                c2.metric("现价", res['Price'])
+                c3.markdown(f":red[**{res['Drop']}**]") # 醒目的跌幅
+                c4.success(f"{res['Status']}\n\n{res['Detail']}")
                 st.divider()
-
-        bar.progress((i + 1) / len(symbols))
-        time.sleep(0.05) # 极速模式，稍微减少延迟
         
-    bar.empty()
-    progress_text.empty()
+        # 更新进度
+        progress_bar.progress((i + 1) / len(TOP_COINS))
+        time.sleep(0.05) # 稍微快一点
+        
+    progress_bar.empty()
     
-    if not found_ops:
+    if found_count == 0:
+        st.warning("⚠️ 扫描完成，当前 15分钟 级别没有发现剧烈的 V 反形态。")
+        st.markdown("建议：\n1. 尝试将 **最低跌幅要求** 调低一点 (比如 1.5%)。\n2. 切换到 **1h** 周期看看更大级别的机会。")
+    else:
+        st.balloons()
+        st.success(f"🎯 扫描结束！共发现 {found_count} 个潜在暴利目标！")
+
+else:
+    st.info("👈 点击左侧按钮，开始全市场地毯式搜索。")
         st.warning(f"扫描了 {len(symbols)} 个币种，当前 15分钟 级别暂无符合【TNSR式暴力洗盘】的形态。主力可能在休息。")
         st.caption("建议：过 15 分钟再点一次，或者去 1h 级别看看。")
