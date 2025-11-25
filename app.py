@@ -153,3 +153,34 @@ if scan_btn:
                 # 实时显示高分目标
                 if res['分数'] >= 40:
                     with result_container:
+                        # --- 这里是关键修复：这几行现在已经正确缩进了 ---
+                        c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+                        c1.error(f"**{res['币种']}**")
+                        c2.write(f"{res['现价']}")
+                        c3.write(f"RSI: {res['RSI']}")
+                        c4.write(f"{res['信号']}")
+        
+        progress.progress((i + 1) / len(TARGET_COINS))
+        # 极速模式：稍微小睡一下防止并发太高
+        time.sleep(0.03)
+        
+    progress.empty()
+    
+    if success_count == 0:
+        st.error("❌ 即使是伪装模式也被拦截了。Streamlit Cloud IP 已经被币安彻底拉黑。")
+        st.markdown("### 🛑 终极解决方案：")
+        st.markdown("请把这个代码下载到你自己的电脑上运行，你的家庭网络绝对不会被封。")
+    elif results:
+        # 整理表格
+        df_res = pd.DataFrame(results)
+        df_res = df_res.sort_values(by="分数", ascending=False)
+        
+        st.success(f"✅ 扫描成功！成功连接 {success_count}/{len(TARGET_COINS)} 个币种。")
+        st.dataframe(
+            df_res, 
+            hide_index=True,
+            use_container_width=True,
+            column_config={"分数": st.column_config.ProgressColumn("做空热度", min_value=0, max_value=100)}
+        )
+    else:
+        st.warning("✅ 连接成功，但当前市场暂无明显的派发形态 (RSI均不高且无插针)。")
